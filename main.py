@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from bson.objectid import ObjectId
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from database import db, create_document, get_documents
 from schemas import User, Child, Therapist, Parent, Session, Goal, ProgressNote, Donation, SignupRequest, LoginRequest
@@ -138,8 +138,9 @@ def create_child(child: Child):
 
 @app.get("/children")
 def list_children(parent_id: Optional[str] = None, therapist_id: Optional[str] = None):
-    filt = {}
+    filt: Dict[str, Any] = {}
     if parent_id:
+        # store relation as scalar id in array, so filter directly
         filt["parent_ids"] = parent_id
     if therapist_id:
         filt["therapist_ids"] = therapist_id
@@ -173,7 +174,7 @@ def create_session(session: Session):
 
 @app.get("/sessions")
 def list_sessions(child_id: Optional[str] = None, therapist_id: Optional[str] = None):
-    filt = {}
+    filt: Dict[str, Any] = {}
     if child_id:
         filt["child_id"] = child_id
     if therapist_id:
@@ -182,6 +183,37 @@ def list_sessions(child_id: Optional[str] = None, therapist_id: Optional[str] = 
     for s in sessions:
         s["id"] = str(s.pop("_id"))
     return sessions
+
+
+class GoalsProgressPayload(BaseModel):
+    items: List[Dict[str, Any]]  # list of {goal_id, rating, comment}
+
+
+@app.patch("/sessions/{session_id}/goals-progress")
+def add_goals_progress(session_id: str, payload: GoalsProgressPayload):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    try:
+        _id = to_obj_id(session_id)
+    except HTTPException:
+        raise
+    # validate items structure minimally
+    items = []
+    for it in payload.items:
+        if not it.get("goal_id"):
+            raise HTTPException(status_code=400, detail="goal_id required")
+        rating = it.get("rating")
+        if rating is not None and (not isinstance(rating, int) or rating < 1 or rating > 5):
+            raise HTTPException(status_code=400, detail="rating must be 1-5")
+        items.append({
+            "goal_id": it.get("goal_id"),
+            "rating": rating,
+            "comment": it.get("comment")
+        })
+    res = db["session"].update_one({"_id": _id}, {"$push": {"goals_progress": {"$each": items}}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"updated": True, "count": len(items)}
 
 
 # Progress notes
@@ -208,7 +240,7 @@ def create_donation(donation: Donation):
 
 @app.get("/donations")
 def list_donations(child_id: Optional[str] = None, donor_id: Optional[str] = None):
-    filt = {}
+    filt: Dict[str, Any] = {}
     if child_id:
         filt["child_id"] = child_id
     if donor_id:
@@ -217,6 +249,58 @@ def list_donations(child_id: Optional[str] = None, donor_id: Optional[str] = Non
     for d in donations:
         d["id"] = str(d.pop("_id"))
     return donations
+
+
+@app.get("/donations/summary")
+def donation_summary(child_id: Optional[str] = None, donor_id: Optional[str] = None):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    filt: Dict[str, Any] = {}
+    if child_id:
+        filt["child_id"] = child_id
+    if donor_id:
+        filt["donor_id"] = donor_id
+    pipeline = [
+        {"$match": filt},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}, "count": {"$sum": 1}}}
+    ]
+    agg = list(db["donation"].aggregate(pipeline))
+    total = agg[0]["total"] if agg else 0
+    count = agg[0]["count"] if agg else 0
+    return {"total": total, "count": count}
+
+
+# Weekly reports
+@app.get("/reports/weekly")
+def weekly_report(parent_id: str):
+    """Return a simple weekly summary for a parent's children: sessions and goals progress counts."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    # find children for this parent
+    children = list(db["child"].find({"parent_ids": parent_id}))
+    child_ids = [str(c["_id"]) for c in children]
+    sessions = list(db["session"].find({"child_id": {"$in": child_ids}}))
+    goals = list(db["goal"].find({"child_id": {"$in": child_ids}}))
+    # basic aggregation
+    report_children = []
+    for c in children:
+        cid = str(c["_id"])
+        csessions = [s for s in sessions if s.get("child_id") == cid]
+        cgoals = [g for g in goals if g.get("child_id") == cid]
+        progress_items = sum([len(s.get("goals_progress", [])) for s in csessions])
+        report_children.append({
+            "child_id": cid,
+            "name": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
+            "sessions": len(csessions),
+            "goals": len(cgoals),
+            "progress_updates": progress_items,
+        })
+    return {
+        "parent_id": parent_id,
+        "children": report_children,
+        "total_sessions": sum(x["sessions"] for x in report_children),
+        "total_progress_updates": sum(x["progress_updates"] for x in report_children),
+    }
 
 
 if __name__ == "__main__":
