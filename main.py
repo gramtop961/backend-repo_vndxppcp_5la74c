@@ -1,7 +1,7 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from bson.objectid import ObjectId
 from typing import List, Optional, Dict, Any
 
@@ -9,6 +9,18 @@ from database import db, create_document, get_documents
 from schemas import User, Child, Therapist, Parent, Session, Goal, ProgressNote, Donation, SignupRequest, LoginRequest
 
 from passlib.context import CryptContext
+
+# For PDF generation
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import mm
+
+# For email
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 
 app = FastAPI(title="Therapy Center API")
 
@@ -301,6 +313,101 @@ def weekly_report(parent_id: str):
         "total_sessions": sum(x["sessions"] for x in report_children),
         "total_progress_updates": sum(x["progress_updates"] for x in report_children),
     }
+
+
+# Weekly report PDF
+@app.get("/reports/weekly.pdf")
+def weekly_report_pdf(parent_id: str):
+    # Reuse aggregation to get data
+    data = weekly_report(parent_id)
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    title = "Weekly Therapy Report"
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(20 * mm, height - 20 * mm, title)
+
+    c.setFont("Helvetica", 10)
+    c.drawString(20 * mm, height - 27 * mm, f"Parent ID: {data['parent_id']}")
+    c.drawString(20 * mm, height - 32 * mm, f"Total Sessions: {data['total_sessions']}")
+    c.drawString(20 * mm, height - 37 * mm, f"Progress Updates: {data['total_progress_updates']}")
+
+    y = height - 50 * mm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20 * mm, y, "Children Summary")
+    y -= 6 * mm
+    c.setFont("Helvetica", 10)
+
+    for ch in data["children"]:
+        if y < 20 * mm:
+            c.showPage()
+            y = height - 20 * mm
+        line = f"- {ch['name']} | Sessions: {ch['sessions']} | Goals: {ch['goals']} | Updates: {ch['progress_updates']}"
+        c.drawString(20 * mm, y, line)
+        y -= 6 * mm
+
+    c.showPage()
+    c.save()
+    pdf = buffer.getvalue()
+    buffer.close()
+    headers = {"Content-Disposition": "inline; filename=weekly_report.pdf"}
+    return Response(content=pdf, media_type="application/pdf", headers=headers)
+
+
+class WeeklyEmailRequest(BaseModel):
+    parent_id: str
+    to_email: EmailStr
+
+
+@app.post("/notifications/email/weekly-report")
+def email_weekly_report(payload: WeeklyEmailRequest):
+    data = weekly_report(payload.parent_id)
+
+    # SMTP configuration from environment
+    host = os.getenv("EMAIL_HOST")
+    port = int(os.getenv("EMAIL_PORT", "587"))
+    user = os.getenv("EMAIL_USER")
+    password = os.getenv("EMAIL_PASS")
+    sender = os.getenv("EMAIL_FROM", user or "noreply@example.com")
+
+    if not host or not user or not password:
+        raise HTTPException(status_code=501, detail="Email not configured on server")
+
+    # Create email
+    msg = MIMEMultipart()
+    msg["From"] = sender
+    msg["To"] = payload.to_email
+    msg["Subject"] = "Weekly Therapy Report"
+
+    html_body = f"""
+    <h2>Weekly Therapy Report</h2>
+    <p>Total Sessions: {data['total_sessions']}</p>
+    <p>Total Progress Updates: {data['total_progress_updates']}</p>
+    <ul>
+        {''.join([f"<li>{ch['name']}: {ch['sessions']} sessions, {ch['goals']} goals, {ch['progress_updates']} updates</li>" for ch in data['children']])}
+    </ul>
+    """
+    msg.attach(MIMEText(html_body, "html"))
+
+    # Attach PDF
+    # Generate PDF bytes
+    pdf_resp = weekly_report_pdf(payload.parent_id)
+    pdf_bytes = pdf_resp.body if hasattr(pdf_resp, 'body') else pdf_resp
+    part = MIMEApplication(pdf_bytes, _subtype="pdf")
+    part.add_header('Content-Disposition', 'attachment', filename='weekly_report.pdf')
+    msg.attach(part)
+
+    try:
+        with smtplib.SMTP(host, port) as server:
+            server.starttls()
+            server.login(user, password)
+            server.sendmail(sender, [payload.to_email], msg.as_string())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)[:200]}")
+
+    return {"sent": True}
 
 
 if __name__ == "__main__":

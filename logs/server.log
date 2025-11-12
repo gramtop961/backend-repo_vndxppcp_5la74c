@@ -1,19 +1,25 @@
 INFO:     Will watch for changes in these directories: ['/home/workspace']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [348] using StatReload
-INFO:     Started server process [350]
+INFO:     Started reloader process [439] using StatReload
+INFO:     Started server process [441]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     172.20.0.1:51598 - "HEAD / HTTP/1.1" 405 Method Not Allowed
-INFO:     172.20.0.1:51610 - "GET /children HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51616 - "GET /users HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51610 - "GET /children HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51616 - "GET /users HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51622 - "GET /sessions HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51616 - "GET /sessions HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51636 - "GET /users HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51634 - "GET /children HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51652 - "GET /sessions HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51636 - "GET /users HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51634 - "GET /children HTTP/1.1" 200 OK
-INFO:     172.20.0.1:51652 - "GET /sessions HTTP/1.1" 200 OK
+INFO:     172.20.0.1:56852 - "HEAD / HTTP/1.1" 405 Method Not Allowed
+INFO:     172.20.0.1:46248 - "GET /users HTTP/1.1" 200 OK
+INFO:     172.20.0.1:46264 - "GET /sessions HTTP/1.1" 200 OK
+INFO:     172.20.0.1:46268 - "GET /children HTTP/1.1" 200 OK
+INFO:     172.20.0.1:46276 - "GET /children HTTP/1.1" 200 OK
+INFO:     172.20.0.1:46276 - "GET /users HTTP/1.1" 200 OK
+INFO:     172.20.0.1:46248 - "GET /sessions HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37924 - "GET /children HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37932 - "GET /users HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37944 - "GET /sessions HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37924 - "GET /users HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37960 - "GET /children HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37944 - "GET /users HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37924 - "GET /children HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37932 - "GET /sessions HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37924 - "GET /sessions HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37960 - "GET /users HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37944 - "GET /children HTTP/1.1" 200 OK
+INFO:     172.20.0.1:37932 - "GET /sessions HTTP/1.1" 200 OK
