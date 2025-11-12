@@ -1,8 +1,14 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from bson.objectid import ObjectId
+from typing import List, Optional
 
-app = FastAPI()
+from database import db, create_document, get_documents
+from schemas import User, Child, Therapist, Parent, Session, Goal, ProgressNote, Donation
+
+app = FastAPI(title="Therapy Center API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -12,17 +18,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def read_root():
-    return {"message": "Hello from FastAPI Backend!"}
+    return {"message": "Therapy Center Backend Running"}
 
-@app.get("/api/hello")
-def hello():
-    return {"message": "Hello from the backend API!"}
 
 @app.get("/test")
 def test_database():
-    """Test endpoint to check if database is available and accessible"""
     response = {
         "backend": "✅ Running",
         "database": "❌ Not Available",
@@ -31,38 +34,134 @@ def test_database():
         "connection_status": "Not Connected",
         "collections": []
     }
-    
     try:
-        # Try to import database module
-        from database import db
-        
         if db is not None:
             response["database"] = "✅ Available"
-            response["database_url"] = "✅ Configured"
-            response["database_name"] = db.name if hasattr(db, 'name') else "✅ Connected"
+            response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
+            response["database_name"] = db.name if hasattr(db, 'name') else "Unknown"
             response["connection_status"] = "Connected"
-            
-            # Try to list collections to verify connectivity
             try:
                 collections = db.list_collection_names()
-                response["collections"] = collections[:10]  # Show first 10 collections
+                response["collections"] = collections[:10]
                 response["database"] = "✅ Connected & Working"
             except Exception as e:
                 response["database"] = f"⚠️  Connected but Error: {str(e)[:50]}"
         else:
             response["database"] = "⚠️  Available but not initialized"
-            
-    except ImportError:
-        response["database"] = "❌ Database module not found (run enable-database first)"
     except Exception as e:
         response["database"] = f"❌ Error: {str(e)[:50]}"
-    
-    # Check environment variables
-    import os
-    response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
-    response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
-    
     return response
+
+
+# Utility helpers
+class IdModel(BaseModel):
+    id: str
+
+def to_obj_id(id_str: str) -> ObjectId:
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid id format")
+
+
+# Users
+@app.post("/users")
+def create_user(user: User):
+    user_id = create_document("user", user)
+    return {"id": user_id}
+
+@app.get("/users")
+def list_users(role: Optional[str] = None):
+    filt = {"role": role} if role else {}
+    users = get_documents("user", filt)
+    for u in users:
+        u["id"] = str(u.pop("_id"))
+    return users
+
+
+# Children
+@app.post("/children")
+def create_child(child: Child):
+    child_id = create_document("child", child)
+    return {"id": child_id}
+
+@app.get("/children")
+def list_children(parent_id: Optional[str] = None, therapist_id: Optional[str] = None):
+    filt = {}
+    if parent_id:
+        filt["parent_ids"] = parent_id
+    if therapist_id:
+        filt["therapist_ids"] = therapist_id
+    children = get_documents("child", filt)
+    for c in children:
+        c["id"] = str(c.pop("_id"))
+    return children
+
+
+# Goals
+@app.post("/goals")
+def create_goal(goal: Goal):
+    goal_id = create_document("goal", goal)
+    return {"id": goal_id}
+
+@app.get("/goals")
+def list_goals(child_id: str):
+    goals = get_documents("goal", {"child_id": child_id})
+    for g in goals:
+        g["id"] = str(g.pop("_id"))
+    return goals
+
+
+# Sessions
+@app.post("/sessions")
+def create_session(session: Session):
+    session_id = create_document("session", session)
+    return {"id": session_id}
+
+@app.get("/sessions")
+def list_sessions(child_id: Optional[str] = None, therapist_id: Optional[str] = None):
+    filt = {}
+    if child_id:
+        filt["child_id"] = child_id
+    if therapist_id:
+        filt["therapist_id"] = therapist_id
+    sessions = get_documents("session", filt)
+    for s in sessions:
+        s["id"] = str(s.pop("_id"))
+    return sessions
+
+
+# Progress notes
+@app.post("/progress-notes")
+def create_progress_note(note: ProgressNote):
+    note_id = create_document("progressnote", note)
+    return {"id": note_id}
+
+@app.get("/progress-notes")
+def list_progress_notes(child_id: str):
+    notes = get_documents("progressnote", {"child_id": child_id})
+    for n in notes:
+        n["id"] = str(n.pop("_id"))
+    return notes
+
+
+# Donations
+@app.post("/donations")
+def create_donation(donation: Donation):
+    donation_id = create_document("donation", donation)
+    return {"id": donation_id}
+
+@app.get("/donations")
+def list_donations(child_id: Optional[str] = None, donor_id: Optional[str] = None):
+    filt = {}
+    if child_id:
+        filt["child_id"] = child_id
+    if donor_id:
+        filt["donor_id"] = donor_id
+    donations = get_documents("donation", filt)
+    for d in donations:
+        d["id"] = str(d.pop("_id"))
+    return donations
 
 
 if __name__ == "__main__":
