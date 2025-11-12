@@ -15,6 +15,8 @@ class User(BaseModel):
     role: RoleType = Field(..., description="User role")
     phone: Optional[str] = Field(None, description="Phone number")
     is_active: bool = Field(True, description="Active user flag")
+    username: Optional[str] = Field(None, description="Unique username for login")
+    password_hash: Optional[str] = Field(None, description="Hashed password (bcrypt)")
 
 class Parent(BaseModel):
     user_id: str = Field(..., description="Reference to user _id")
@@ -63,3 +65,15 @@ class Donation(BaseModel):
     amount: float = Field(..., ge=0)
     message: Optional[str] = None
     date: str = Field(..., description="YYYY-MM-DD")
+
+# Auth auxiliary models (not collections)
+class SignupRequest(BaseModel):
+    name: str
+    email: EmailStr
+    username: str
+    password: str
+    role: RoleType
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str

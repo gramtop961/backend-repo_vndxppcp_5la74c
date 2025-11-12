@@ -6,7 +6,9 @@ from bson.objectid import ObjectId
 from typing import List, Optional
 
 from database import db, create_document, get_documents
-from schemas import User, Child, Therapist, Parent, Session, Goal, ProgressNote, Donation
+from schemas import User, Child, Therapist, Parent, Session, Goal, ProgressNote, Donation, SignupRequest, LoginRequest
+
+from passlib.context import CryptContext
 
 app = FastAPI(title="Therapy Center API")
 
@@ -17,6 +19,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @app.get("/")
@@ -57,11 +61,53 @@ def test_database():
 class IdModel(BaseModel):
     id: str
 
+
 def to_obj_id(id_str: str) -> ObjectId:
     try:
         return ObjectId(id_str)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id format")
+
+
+# Authentication
+@app.post("/auth/signup")
+def auth_signup(payload: SignupRequest):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    # Check username or email uniqueness
+    existing = db["user"].find_one({"$or": [{"username": payload.username}, {"email": payload.email}]})
+    if existing:
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+    password_hash = pwd_context.hash(payload.password)
+    user_doc = {
+        "name": payload.name,
+        "email": payload.email,
+        "username": payload.username,
+        "password_hash": password_hash,
+        "role": payload.role,
+        "is_active": True,
+    }
+    new_id = db["user"].insert_one(user_doc).inserted_id
+    return {"id": str(new_id), "name": payload.name, "role": payload.role}
+
+
+@app.post("/auth/login")
+def auth_login(payload: LoginRequest):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    user = db["user"].find_one({"username": payload.username})
+    if not user or not user.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not pwd_context.verify(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Return basic session-less info (no JWT for simplicity)
+    return {
+        "id": str(user["_id"]),
+        "name": user.get("name"),
+        "role": user.get("role"),
+        "email": user.get("email"),
+        "username": user.get("username"),
+    }
 
 
 # Users
@@ -70,13 +116,17 @@ def create_user(user: User):
     user_id = create_document("user", user)
     return {"id": user_id}
 
+
 @app.get("/users")
 def list_users(role: Optional[str] = None):
     filt = {"role": role} if role else {}
     users = get_documents("user", filt)
+    sanitized = []
     for u in users:
         u["id"] = str(u.pop("_id"))
-    return users
+        u.pop("password_hash", None)
+        sanitized.append(u)
+    return sanitized
 
 
 # Children
@@ -84,6 +134,7 @@ def list_users(role: Optional[str] = None):
 def create_child(child: Child):
     child_id = create_document("child", child)
     return {"id": child_id}
+
 
 @app.get("/children")
 def list_children(parent_id: Optional[str] = None, therapist_id: Optional[str] = None):
@@ -104,6 +155,7 @@ def create_goal(goal: Goal):
     goal_id = create_document("goal", goal)
     return {"id": goal_id}
 
+
 @app.get("/goals")
 def list_goals(child_id: str):
     goals = get_documents("goal", {"child_id": child_id})
@@ -117,6 +169,7 @@ def list_goals(child_id: str):
 def create_session(session: Session):
     session_id = create_document("session", session)
     return {"id": session_id}
+
 
 @app.get("/sessions")
 def list_sessions(child_id: Optional[str] = None, therapist_id: Optional[str] = None):
@@ -137,6 +190,7 @@ def create_progress_note(note: ProgressNote):
     note_id = create_document("progressnote", note)
     return {"id": note_id}
 
+
 @app.get("/progress-notes")
 def list_progress_notes(child_id: str):
     notes = get_documents("progressnote", {"child_id": child_id})
@@ -150,6 +204,7 @@ def list_progress_notes(child_id: str):
 def create_donation(donation: Donation):
     donation_id = create_document("donation", donation)
     return {"id": donation_id}
+
 
 @app.get("/donations")
 def list_donations(child_id: Optional[str] = None, donor_id: Optional[str] = None):
